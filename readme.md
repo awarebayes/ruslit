@@ -36,3 +36,9 @@ table.extend(vec![
     ("х", "h"),
 ]);
 ```
+
+### Why did I make it
+
+I use corne keyboard with colemak-dh english layout programmed via VIAL (with custom binds).
+
+For the love of god I do not want to learn to type russian in colemak.
