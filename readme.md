@@ -16,6 +16,8 @@ Return - copy to clipboard and clear input
 
 Supported clipboards: "xclip", "arboard", "wlclipboard"
 
+Supported platforms: X11, Wayland, whatever arboard supports
+
 Supported languages: Russian. You can add your own (Urkainian, Belarussian) via forking and PR. Dont forget to add cli option.
 
 GOST Changes:
