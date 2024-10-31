@@ -8,12 +8,30 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
+use arboard;
+use clap::{Parser, ValueEnum};
 use std::io::Write;
 use std::process::{Command, Stdio};
 use translit::{self, FromLatin, Transliterator};
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Clipboard utility to use: arboard, xclip, or wl-clipboard
+    #[arg(short, long, value_enum, default_value_t = ClipboardOption::Xclip)]
+    clipboard: ClipboardOption,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+enum ClipboardOption {
+    Arboard,
+    Xclip,
+    WlClipboard,
+}
+
 fn main() -> Result<()> {
     color_eyre::install()?;
+
     let terminal = ratatui::init();
     let app_result = App::new().run(terminal);
     ratatui::restore();
@@ -26,11 +44,11 @@ struct App {
     input: String,
     output: String,
     transliterator: translit::Transliterator,
-    /// Position of cursor in the editor area.
     character_index: usize,
+    clipboard_option: ClipboardOption,
 }
 
-fn set_clipboard(content: &str) {
+fn set_clipboard_xclip(content: &str) {
     let mut child = Command::new("xclip")
         .arg("-selection")
         .arg("clipboard")
@@ -49,8 +67,31 @@ fn set_clipboard(content: &str) {
     child.wait().expect("Failed to wait on xclip");
 }
 
+fn set_clipboard_wl_clipboard(content: &str) {
+    let mut child = Command::new("wl-copy")
+        .stdin(Stdio::piped()) // Pipe for sending content to wl-copy
+        .spawn()
+        .expect("Failed to start wl-copy");
+
+    // Write the content to wl-copy's stdin
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(content.as_bytes())
+            .expect("Failed to write to wl-copy");
+    }
+
+    // Wait for wl-copy to complete
+    child.wait().expect("Failed to wait on wl-copy");
+}
+
+fn set_clipboard_arboard(content: &str) {
+    let mut clipboard = arboard::Clipboard::new().unwrap();
+    clipboard.set_text(content).unwrap();
+}
+
 impl App {
     fn new() -> Self {
+        let args = Args::parse();
         let mut table = translit::gost779b_ru();
         table.extend(vec![
             ("ь", "'"),
@@ -68,6 +109,7 @@ impl App {
         Self {
             input: String::new(),
             output: String::new(),
+            clipboard_option: args.clipboard,
             transliterator: Transliterator::new(table),
             character_index: 0,
         }
@@ -94,10 +136,6 @@ impl App {
         self.transliterate();
     }
 
-    /// Returns the byte index based on the character position.
-    ///
-    /// Since each character in a string can be contain multiple bytes, it's necessary to calculate
-    /// the byte index based on the index of the character.
     fn byte_index(&self) -> usize {
         self.input
             .char_indices()
@@ -109,20 +147,12 @@ impl App {
     fn delete_char(&mut self) {
         let is_not_cursor_leftmost = self.character_index != 0;
         if is_not_cursor_leftmost {
-            // Method "remove" is not used on the saved text for deleting the selected char.
-            // Reason: Using remove on String works on bytes instead of the chars.
-            // Using remove would require special care because of char boundaries.
-
             let current_index = self.character_index;
             let from_left_to_current_index = current_index - 1;
 
-            // Getting all characters before the selected character.
             let before_char_to_delete = self.input.chars().take(from_left_to_current_index);
-            // Getting all characters after selected character.
             let after_char_to_delete = self.input.chars().skip(current_index);
 
-            // Put all characters together except the selected one.
-            // By leaving the selected one out, it is forgotten and therefore deleted.
             self.input = before_char_to_delete.chain(after_char_to_delete).collect();
             self.move_cursor_left();
         }
@@ -137,9 +167,16 @@ impl App {
         self.character_index = 0;
     }
 
+    fn set_clipboard(&self, content: &str) {
+        match self.clipboard_option {
+            ClipboardOption::Xclip => set_clipboard_xclip(content),
+            ClipboardOption::Arboard => set_clipboard_arboard(content),
+            ClipboardOption::WlClipboard => set_clipboard_wl_clipboard(content),
+        }
+    }
+
     fn handle_enter(&mut self) {
-        // TODO: handle me
-        set_clipboard(self.output.as_str());
+        set_clipboard_xclip(self.output.as_str());
         self.input.clear();
         self.reset_cursor();
         self.transliterate();
@@ -180,6 +217,7 @@ impl App {
                 " to stop editing, ".into(),
                 "Enter".bold(),
                 " to copy to clipboard".into(),
+                format!(" | Clipboard: {:?}", self.clipboard_option).into(),
             ],
             Style::default(),
         );
@@ -197,13 +235,8 @@ impl App {
             .block(Block::bordered().title("Output"));
         frame.render_widget(output, output_area);
 
-        // Make the cursor visible and ask ratatui to put it at the specified coordinates after
-        // rendering
         frame.set_cursor_position(Position::new(
-            // Draw the cursor at the current position in the input field.
-            // This position is can be controlled via the left and right arrow key
             input_area.x + self.character_index as u16 + 1,
-            // Move one line down, from the border to the input line
             input_area.y + 1,
         ));
     }
