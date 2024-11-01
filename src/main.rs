@@ -1,7 +1,7 @@
 use color_eyre::Result;
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
-    layout::{Constraint, Layout, Position},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Style, Stylize},
     text::{Line, Text},
     widgets::{Block, Paragraph},
@@ -124,6 +124,28 @@ fn get_table(lang: &LanguageOption) -> Vec<(&'static str, &'static str)> {
     };
 }
 
+fn centered_layout(frame_area: Rect) -> [Rect; 3] {
+    // Calculate the total height of your layout
+    let total_content_height = 1 + 3 + 3;
+
+    // Calculate the remaining space to split above and below
+    let vertical_padding = (frame_area.height.saturating_sub(total_content_height)) / 2;
+
+    // Define the main layout with padding at the top and bottom
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(vertical_padding), // Top padding
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(0), // Bottom padding (fills remaining space)
+        ])
+        .split(frame_area);
+
+    [vertical[1], vertical[2], vertical[3]] // Return the areas for help, input, and output
+}
+
 impl App {
     fn new() -> Self {
         let args = Args::parse();
@@ -227,12 +249,7 @@ impl App {
     }
 
     fn draw(&self, frame: &mut Frame) {
-        let vertical = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(3),
-            Constraint::Length(3),
-        ]);
-        let [help_area, input_area, output_area] = vertical.areas(frame.area());
+        let [help_area, input_area, output_area] = centered_layout(frame.area());
 
         let language_emoji = match self.language_option {
             LanguageOption::Ru => "🇷🇺",
