@@ -18,8 +18,12 @@ use translit::{self, FromLatin, Transliterator};
 #[command(version, about, long_about = None)]
 struct Args {
     /// Clipboard utility to use: arboard, xclip, or wl-clipboard
-    #[arg(short, long, value_enum, default_value_t = ClipboardOption::Xclip)]
+    #[arg(short, long, value_enum, default_value_t = ClipboardOption::Arboard)]
     clipboard: ClipboardOption,
+
+    // Language to use: ru, uk, bl
+    #[arg(short, long, value_enum, default_value_t = LanguageOption::Ru)]
+    language: LanguageOption,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -27,6 +31,13 @@ enum ClipboardOption {
     Arboard,
     Xclip,
     WlClipboard,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+enum LanguageOption {
+    Ru,
+    Ua,
+    By,
 }
 
 fn main() -> Result<()> {
@@ -46,6 +57,7 @@ struct App {
     transliterator: translit::Transliterator,
     character_index: usize,
     clipboard_option: ClipboardOption,
+    language_option: LanguageOption,
 }
 
 fn set_clipboard_xclip(content: &str) {
@@ -89,22 +101,33 @@ fn set_clipboard_arboard(content: &str) {
     clipboard.set_text(content).unwrap();
 }
 
+fn get_table(lang: &LanguageOption) -> Vec<(&'static str, &'static str)> {
+    return match lang {
+        LanguageOption::Ru => {
+            let mut table = translit::gost779b_ru();
+            table.extend(vec![
+                ("ь", "'"),
+                ("ъ", "''"),
+                ("ы", "y'"),
+                ("Ы", "Y'"),
+                ("в", "w"),
+                ("В", "W"),
+                ("э", "e'"),
+                ("Э", "E'"),
+                ("Х", "H"),
+                ("х", "h"),
+            ]);
+            table
+        }
+        LanguageOption::Ua => translit::gost779b_ua(),
+        LanguageOption::By => translit::gost779b_by(),
+    };
+}
+
 impl App {
     fn new() -> Self {
         let args = Args::parse();
-        let mut table = translit::gost779b_ru();
-        table.extend(vec![
-            ("ь", "'"),
-            ("ъ", "''"),
-            ("ы", "y'"),
-            ("Ы", "Y'"),
-            ("в", "w"),
-            ("В", "W"),
-            ("э", "e'"),
-            ("Э", "E'"),
-            ("Х", "H"),
-            ("х", "h"),
-        ]);
+        let table = get_table(&args.language);
 
         Self {
             input: String::new(),
@@ -112,6 +135,7 @@ impl App {
             clipboard_option: args.clipboard,
             transliterator: Transliterator::new(table),
             character_index: 0,
+            language_option: args.language,
         }
     }
 
@@ -176,7 +200,7 @@ impl App {
     }
 
     fn handle_enter(&mut self) {
-        set_clipboard_xclip(self.output.as_str());
+        self.set_clipboard(self.output.as_str());
         self.input.clear();
         self.reset_cursor();
         self.transliterate();
@@ -210,9 +234,16 @@ impl App {
         ]);
         let [help_area, input_area, output_area] = vertical.areas(frame.area());
 
+        let language_emoji = match self.language_option {
+            LanguageOption::Ru => "🇷🇺",
+            LanguageOption::Ua => "🇺🇦",
+            LanguageOption::By => "🇧🇾",
+        };
+
         let (msg, style) = (
             vec![
-                "Press ".into(),
+                language_emoji.into(),
+                " Press ".into(),
                 "Esc".bold(),
                 " to stop editing, ".into(),
                 "Enter".bold(),
